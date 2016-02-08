@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+ <head>
+  <title>noVNC.go</title>
+  <link rel="stylesheet" type="text/css" href="shared.css"/>
+ </head>
+ <body class="center">
+   <h2>noVNC.go</h2>
+   <h2><a href="/logout">Logout {{.User}}</a></h2>
+   <h2>VNC Servers</h2>
+   <ul>
+   {{range .Servers}}
+   <li><a href="/vnc.html?path={{.Name}}"/>{{.Name}}</a></li>
+   {{end}}
+   </ul>
+   <h2><a href="/file">List Files</a></h2>
+   <h2>Upload</h2>
+   <form enctype="multipart/form-data" action="/upload",
+		 method="POST">
+	 File: <input name="file" type="file"/>
+	 <input type="submit" value="Upload"/>
+   </form>
+ </body>
+</html>
+
