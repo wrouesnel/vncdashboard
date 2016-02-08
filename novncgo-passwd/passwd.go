@@ -1,12 +1,12 @@
 package main
 
 import (
-	"bitbucket.org/taruti/pbkdf2.go"
-	"bitbucket.org/taruti/termios"
+	"golang.org/x/crypto/pbkdf2"
+	"github.com/creack/termios"
 	"bytes"
 	"fmt"
 	"io/ioutil"
-	"log"
+	"github.com/prometheus/common/log"
 	"os"
 	)
 

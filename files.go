@@ -1,13 +1,16 @@
 package main
 
 import (
-	"bitbucket.org/taruti/pbkdf2.go"
+	"golang.org/x/crypto/pbkdf2"
 	"github.com/bmatsuo/csvutil"
 	"encoding/hex"
-	"log"
+	"github.com/prometheus/common/log"
 	"os"
 	"strings"
-	)
+
+	"crypto/sha1"
+	"bytes"
+)
 
 var csvcfg = csvcfgI()
 
@@ -20,20 +23,24 @@ func csvcfgI() *csvutil.Config {
 func AuthUser(username, pass string) bool {
 	r,e := os.Open("novncgo.passwd")
 	if e!=nil {
-		log.Print(e)
+		log.Infoln(e)
 		return false
 	}
 	lines,e := csvutil.NewReader(r,csvcfg).RemainingRows()
 	if e!=nil {
-		log.Print(e)
+		log.Infoln(e)
 		return false
 	}
 	for _,line := range lines {
 		if len(line)>=3 && line[0] == username {
-			var ph pbkdf2.PasswordHash
-			ph.Salt,_ = hex.DecodeString(line[1])
-			ph.Hash,_ = hex.DecodeString(line[2])
-			return pbkdf2.MatchPassword(pass, ph)
+			// Get stored salt and hash
+			salt, _ := hex.DecodeString(line[1])
+			hash, _ := hex.DecodeString(line[2])
+
+			// Check password against it
+			calc_hash := pbkdf2.Key([]byte(pass), salt, 4096, 32, sha1.New)
+
+			return (bytes.Compare(hash, calc_hash) == 0)
 		}
 	}
 	return false
@@ -47,12 +54,12 @@ type Server struct {
 func Servers() []Server {
 	r,e := os.Open("novncgo.servers")
 	if e!=nil {
-		log.Print(e)
+		log.Infoln(e)
 		return nil
 	}
 	lines,e := csvutil.NewReader(r,csvcfg).RemainingRows()
 	if e!=nil {
-		log.Print(e)
+		log.Infoln(e)
 		return nil
 	}
 	ss := []Server{}
