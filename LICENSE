@@ -5,7 +5,7 @@ vnc.html is derived from noVNC and thus licensed under LGPL-3.
 All the Go code and original html templates are licensed under the MIT license,
 which is reproduced below:
 
-Copyright (C) 2012 Taru Karttunen <taruti@taruti.net>
+Copyright (C) 2016 Will Rouesnel <w.rouesnel@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of 
 this software and associated documentation files (the "Software"), to deal in the 

@@ -1,15 +1,6 @@
-novncgo: noVNC
-	go build
-	cd novncgo-passwd && go build
-
-clean:
-	go clean
-	cd novncgo-passwd && go clean
-
 noVNC:
 	git clone https://github.com/kanaka/noVNC.git
+	mkdir static/include
+	cp -r noVNC/include static/include
 
-update: noVNC
-	hg pull -u
-	cd noVNC && git pull
 
