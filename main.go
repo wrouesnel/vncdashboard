@@ -23,6 +23,7 @@ import (
 	"crypto/md5"
 	"github.com/JanBerktold/sse"
 	"net/http/httputil"
+"time"
 )
 
 var defaultConfigDir = "."
@@ -58,7 +59,10 @@ var socketWatcher = func() *fsnotify.Watcher {
 }()
 
 // VNC server
-type VNCServer interface {}
+type VNCServer interface {
+	String() string
+	Short() string
+}
 
 type vncServer struct {
 	NetType string	`json:"nettype"`// Golang network type
@@ -68,8 +72,16 @@ type vncServer struct {
 }
 
 // Types used for publishing server events
-type addedServer vncServer
-type removedServer vncServer
+type ManagerActionType string
+const (
+	Manager_AddedServer ManagerActionType = "added"
+	Manager_RemovedServer ManagerActionType = "removed"
+)
+
+type ManagerAction struct {
+	action ManagerActionType
+	server VNCServer
+}
 
 func ParseVNCServer(address string) vncServer {
 	urlp, err := url.Parse(address)
@@ -111,7 +123,7 @@ func (this vncServer) String() string {
 	return u.String()
 }
 
-// Short representation (used internally) for the manager and access paths.
+// Short representation for the manager and access paths.
 // This is just the MD5 hash of the URL form representation, in hex
 func (this vncServer) Short() string {
 	hasher := md5.New()
@@ -123,22 +135,22 @@ func (this vncServer) Short() string {
 // Maintains the list of currently available VNC files
 type serverManager struct {
 	availableServers map[string]vncServer
-	subscribers []chan VNCServer	// Subscribers requesting server updates
+	subscribers []chan ManagerAction	// Subscribers requesting server updates
 	mtx sync.RWMutex
 	smtx sync.Mutex
 }
 
 // Request a channel that publishes updates
-func (this *serverManager) Subscribe() chan VNCServer {
+func (this *serverManager) Subscribe() chan ManagerAction {
 	this.smtx.Lock()
 	defer this.smtx.Unlock()
 
-	ch := make(chan VNCServer,1)
+	ch := make(chan ManagerAction,1)
 	this.subscribers = append(this.subscribers, ch)
 	return ch
 }
 
-func (this *serverManager) Unsubscribe(ch chan VNCServer) {
+func (this *serverManager) Unsubscribe(ch chan ManagerAction) {
 	this.smtx.Lock()
 	defer this.smtx.Unlock()
 
@@ -150,11 +162,11 @@ func (this *serverManager) Unsubscribe(ch chan VNCServer) {
 	}
 }
 
-func (this *serverManager) publish(action VNCServer) {
+func (this *serverManager) publish(action ManagerActionType, server VNCServer) {
 	for _, ch := range this.subscribers {
 		// Always send messages
 		select {
-		case ch <- action: continue
+		case ch <- ManagerAction{ action, server }: continue
 		default:
 			log.Infoln("Dropping message due to full channel")
 		}
@@ -166,9 +178,9 @@ func (this *serverManager) Add(server vncServer) {
 	this.mtx.Lock()
 	defer this.mtx.Unlock()
 
-	log.Debugln("Adding server:", server)
+	log.Infoln("Adding server:", server)
 	this.availableServers[server.Short()] = server
-	this.publish(addedServer(server))
+	this.publish(Manager_AddedServer, server)
 }
 
 // Remove a server from the list by it's network type and address
@@ -176,7 +188,7 @@ func (this *serverManager) RemoveByAddress(address string) {
 	this.mtx.Lock()
 	defer this.mtx.Unlock()
 
-	log.Debugln("Removing server:", address)
+	log.Infoln("Removing server:", address)
 
 	toRemove := []string{}
 	for k, v := range this.availableServers {
@@ -186,7 +198,7 @@ func (this *serverManager) RemoveByAddress(address string) {
 	}
 
 	for _, k := range toRemove {
-		this.publish(removedServer(this.availableServers[k]))
+		this.publish(Manager_RemovedServer, this.availableServers[k])
 		delete(this.availableServers, k)
 	}
 }
@@ -215,9 +227,9 @@ func watchSocketFiles(events <-chan fsnotify.Event, glob string, manager *server
 	// miss events.
 
 	// Glob the watch paths, reduce to minimal set and establish watches.
-	if *socketPaths != "" {
-		log.Debugln("Watch glob supplied:", *socketPaths)
-		watchPaths, err := filepath.Glob(*socketPaths)
+	if glob != "" {
+		log.Debugln("Watch glob supplied:", glob)
+		watchPaths, err := filepath.Glob(glob)
 		if err != nil {
 			log.Fatalln("Error globbing watch-dirs:", err)
 		}
@@ -236,7 +248,7 @@ func watchSocketFiles(events <-chan fsnotify.Event, glob string, manager *server
 
 	// Pickup initial matches asynchronously
 	go func() {
-		watchPaths, err := filepath.Glob(*socketPaths)
+		watchPaths, err := filepath.Glob(glob)
 		if err != nil {
 			log.Fatalln("Error globbing watch-dirs:", err)
 		}
@@ -249,16 +261,20 @@ func watchSocketFiles(events <-chan fsnotify.Event, glob string, manager *server
 					NetType: "unix",
 					Address: globPath,
 				}
+				log.Infoln("Adding server, hash:", server.Short())
 				manager.Add(server)
 			}
 		}
 	}()
 
 	for e := range events {
-		log.Debugln("WATCHED:", e.String())
+		log.Debugln("WATCHED:", e.Op, e.Name)
 		// Check the path against the glob (which should generally filter for something like
 		// socket.
-		matched, _ := filepath.Match(glob, e.Name)
+		matched, err := filepath.Match(glob, e.Name)
+		if err != nil {
+			log.Error("Filepath globber error:", err)
+		}
 		if matched {
 			switch (e.Op) {
 			case fsnotify.Create:
@@ -266,15 +282,19 @@ func watchSocketFiles(events <-chan fsnotify.Event, glob string, manager *server
 					NetType: "unix",
 					Address: e.Name,
 				}
+				log.Infoln("Adding server, hash:", server.Short())
 				manager.Add(server)
+				log.Debugln("Added server to manager:", server.String())
 			case fsnotify.Remove, fsnotify.Rename:
 				// Remove and rename have same relative effect - server no longer available
 				manager.RemoveByAddress(e.Name)
 			default:
 				// Ignore
+				log.Debugln("Ignoring Op:", e.String())
 			}
 		}
 	}
+	log.Infoln("Watch files process finishing.")
 }
 
 func main() {
@@ -299,8 +319,12 @@ func main() {
 
 	var debugReverseProxy *httputil.ReverseProxy
 	if *debugWeb != "" {
+	    debugUrl, err := url.Parse(*debugWeb)
+	    if err != nil {
+	        log.Fatalln("Invalid debug proxy url:",err)
+	    }
 		log.Infoln("Proxy debugging enabled to", *debugWeb)
-		debugReverseProxy = httputil.NewSingleHostReverseProxy(*debugWeb)
+		debugReverseProxy = httputil.NewSingleHostReverseProxy(debugUrl)
 	}
 
 	// Static files endpoint
@@ -315,7 +339,7 @@ func main() {
 		realpath := strings.TrimLeft(reqpath, "/")
 		b, err := Asset(realpath)
 		if err != nil {
-			log.Debugln("Could not find asset: ", err)
+			log.Warnln("Could not find asset: ", err)
 			return
 		} else {
 			// Get mimetype
@@ -354,14 +378,26 @@ func main() {
 		ch := manager.Subscribe()
 		defer manager.Unsubscribe(ch)
 
-		for e := range ch {
-			switch event := e.(type) {
-			case addedServer:
-				conn.WriteJsonEvent("added", event)
-			case removedServer:
-				conn.WriteJsonEvent("removed", event)
+		log.Debugln("New subcriber:", r.RemoteAddr)
+
+		timeCh := time.Tick(time.Second)
+		func() {
+			for {
+				select {
+				case e := <-ch:
+					err = conn.WriteStringEvent(string(e.action), e.server.Short())
+					if err != nil {
+						return
+					}
+				case <-timeCh:
+					if !conn.IsOpen() {
+						return
+					}
+				}
 			}
-		}
+		}()
+
+		log.Debugln("Subscriber finished:", r.RemoteAddr)
 	})
 
 	var err error
