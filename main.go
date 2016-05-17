@@ -1,3 +1,5 @@
+
+// go:generate go-bindata -ignore '.git/.*' -prefix static static/...
 package main
 
 import (
@@ -326,6 +328,11 @@ func main() {
 		log.Infoln("Proxy debugging enabled to", *debugWeb)
 		debugReverseProxy = httputil.NewSingleHostReverseProxy(debugUrl)
 	}
+
+    // Index endpoint
+	router.GET("/", func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	    http.Redirect(w, r, "/static/dashboard.html", 302)
+	})
 
 	// Static files endpoint
 	router.GET("/static/*filepath", func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
