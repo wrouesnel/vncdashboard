@@ -1,46 +1,45 @@
-
 // go:generate go-bindata -ignore '.git/.*' -prefix static static/...
 package main
 
 import (
-	"github.com/gorilla/websocket"
-	"flag"
-	"github.com/prometheus/common/log"
-	"net"
-	"net/http"
-	"os"
-	"strings"
-	"github.com/kardianos/osext"
-	"path"
-	"gopkg.in/fsnotify.v1"
-	"path/filepath"
-	"sync"
-	"github.com/julienschmidt/httprouter"
-	"mime"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
-	"net/url"
 	"encoding/json"
-	"crypto/md5"
+	"flag"
+	"fmt"
 	"github.com/JanBerktold/sse"
+	"github.com/gorilla/websocket"
+	"github.com/julienschmidt/httprouter"
+	"github.com/kardianos/osext"
+	"github.com/prometheus/common/log"
+	"gopkg.in/fsnotify.v1"
+	"mime"
+	"net"
+	"net/http"
 	"net/http/httputil"
-"time"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 )
 
 var defaultConfigDir = "."
 
 var (
-	hostname,_ = os.Hostname()
-	exePath, _ = osext.Executable()
-	exeName = path.Base(exePath)
+	hostname, _ = os.Hostname()
+	exePath, _  = osext.Executable()
+	exeName     = path.Base(exePath)
 
-    fileDir = flag.String("filedir", "export", "Directory for exported files")
+	fileDir = flag.String("filedir", "export", "Directory for exported files")
 
 	listen  = flag.String("listen.addr", ":6080", "Location to listen for connections")
 	host    = flag.String("listen.hostname", hostname, "Hostname to use for certificate")
-	sslCert = flag.String("listen.ssl.cert", exeName + "." + hostname + ".crt", "Path to SSL certfile. Will be generated if it does not exist." )
-	sslKey 	= flag.String("listen.ssl.key", exeName + "." + hostname + ".key", "Path to SSL keyfile. Will be generated if it does not exist." )
+	sslCert = flag.String("listen.ssl.cert", exeName+"."+hostname+".crt", "Path to SSL certfile. Will be generated if it does not exist.")
+	sslKey  = flag.String("listen.ssl.key", exeName+"."+hostname+".key", "Path to SSL keyfile. Will be generated if it does not exist.")
 
 	insecure = flag.Bool("listen.ssl.disable", false, "Disable SSL entirely (INSECURE!)")
 
@@ -67,16 +66,17 @@ type VNCServer interface {
 }
 
 type vncServer struct {
-	NetType string	`json:"nettype"`// Golang network type
-	Address string	`json:"address"`// Address
-	Username string	`json:"username"`// Username
-	Password string	`json:"-"`// Password
+	NetType  string `json:"nettype"`  // Golang network type
+	Address  string `json:"address"`  // Address
+	Username string `json:"username"` // Username
+	Password string `json:"-"`        // Password
 }
 
 // Types used for publishing server events
 type ManagerActionType string
+
 const (
-	Manager_AddedServer ManagerActionType = "added"
+	Manager_AddedServer   ManagerActionType = "added"
 	Manager_RemovedServer ManagerActionType = "removed"
 )
 
@@ -98,17 +98,17 @@ func ParseVNCServer(address string) vncServer {
 		password, _ = urlp.User.Password()
 	}
 
-	if urlp.Path != "" {	// file-likes
+	if urlp.Path != "" { // file-likes
 		return vncServer{
-			NetType: urlp.Scheme,
-			Address: urlp.Path,
+			NetType:  urlp.Scheme,
+			Address:  urlp.Path,
 			Username: user,
 			Password: password,
 		}
-	} else {	// actual network sockets
+	} else { // actual network sockets
 		return vncServer{
-			NetType: urlp.Scheme,
-			Address: urlp.Host,
+			NetType:  urlp.Scheme,
+			Address:  urlp.Host,
 			Username: user,
 			Password: password,
 		}
@@ -137,9 +137,9 @@ func (this vncServer) Short() string {
 // Maintains the list of currently available VNC files
 type serverManager struct {
 	availableServers map[string]vncServer
-	subscribers []chan ManagerAction	// Subscribers requesting server updates
-	mtx sync.RWMutex
-	smtx sync.Mutex
+	subscribers      []chan ManagerAction // Subscribers requesting server updates
+	mtx              sync.RWMutex
+	smtx             sync.Mutex
 }
 
 // Request a channel that publishes updates
@@ -147,7 +147,7 @@ func (this *serverManager) Subscribe() chan ManagerAction {
 	this.smtx.Lock()
 	defer this.smtx.Unlock()
 
-	ch := make(chan ManagerAction,1)
+	ch := make(chan ManagerAction, 1)
 	this.subscribers = append(this.subscribers, ch)
 	return ch
 }
@@ -168,7 +168,8 @@ func (this *serverManager) publish(action ManagerActionType, server VNCServer) {
 	for _, ch := range this.subscribers {
 		// Always send messages
 		select {
-		case ch <- ManagerAction{ action, server }: continue
+		case ch <- ManagerAction{action, server}:
+			continue
 		default:
 			log.Infoln("Dropping message due to full channel")
 		}
@@ -278,7 +279,7 @@ func watchSocketFiles(events <-chan fsnotify.Event, glob string, manager *server
 			log.Error("Filepath globber error:", err)
 		}
 		if matched {
-			switch (e.Op) {
+			switch e.Op {
 			case fsnotify.Create:
 				server := vncServer{
 					NetType: "unix",
@@ -321,17 +322,17 @@ func main() {
 
 	var debugReverseProxy *httputil.ReverseProxy
 	if *debugWeb != "" {
-	    debugUrl, err := url.Parse(*debugWeb)
-	    if err != nil {
-	        log.Fatalln("Invalid debug proxy url:",err)
-	    }
+		debugUrl, err := url.Parse(*debugWeb)
+		if err != nil {
+			log.Fatalln("Invalid debug proxy url:", err)
+		}
 		log.Infoln("Proxy debugging enabled to", *debugWeb)
 		debugReverseProxy = httputil.NewSingleHostReverseProxy(debugUrl)
 	}
 
-    // Index endpoint
+	// Index endpoint
 	router.GET("/", func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	    http.Redirect(w, r, "/static/dashboard.html", 302)
+		http.Redirect(w, r, "/static/dashboard.html", 302)
 	})
 
 	// Static files endpoint
@@ -353,7 +354,7 @@ func main() {
 			mimetype := mime.TypeByExtension(filepath.Ext(realpath))
 
 			w.Header().Set("Content-Type", mimetype)
-			w.Header().Set("Content-Length", fmt.Sprintf("%v",len(b)))
+			w.Header().Set("Content-Length", fmt.Sprintf("%v", len(b)))
 			sha := sha256.New()
 			sha.Write(b)
 			w.Header().Set("ETag", hex.EncodeToString(sha.Sum(nil)))
@@ -440,8 +441,8 @@ func vncWebSocket(manager *serverManager) httprouter.Handle {
 		}
 
 		log.With("type", server.NetType).
-			With("addr",server.Address).
-			With("user",server.Username).Infoln("Opening VNC connection to server")
+			With("addr", server.Address).
+			With("user", server.Username).Infoln("Opening VNC connection to server")
 
 		vncConn, err := net.Dial(server.NetType, server.Address)
 		if err != nil {
@@ -453,7 +454,7 @@ func vncWebSocket(manager *serverManager) httprouter.Handle {
 
 		protocols := websocket.Subprotocols(r)
 		log.Debugln("Subprotocols Requested:", protocols)
-		conn, err := wsupgrader.Upgrade(w, r, http.Header{"Sec-Websocket-Protocol" : {protocols[0]}})
+		conn, err := wsupgrader.Upgrade(w, r, http.Header{"Sec-Websocket-Protocol": {protocols[0]}})
 		if err != nil {
 			log.Infoln("Websocket Upgrade:", err)
 			return
@@ -472,12 +473,12 @@ func vncWebSocket(manager *serverManager) httprouter.Handle {
 			for {
 				_, message, err := conn.ReadMessage()
 				if err != nil {
-					log.Errorln("WEBSOCKET READ:",err)
+					log.Errorln("WEBSOCKET READ:", err)
 					break
 				}
 				_, err = vncConn.Write(message)
 				if err != nil {
-					log.Errorln("VNC WRITE:",err)
+					log.Errorln("VNC WRITE:", err)
 					break
 				}
 			}
@@ -507,9 +508,9 @@ func vncWebSocket(manager *serverManager) httprouter.Handle {
 
 		// Wait for reader or writer exit
 		select {
-		case <- writerExit:
+		case <-writerExit:
 			break
-		case <- readerExit:
+		case <-readerExit:
 			break
 		}
 	}

@@ -6,11 +6,11 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/pem"
-	"io/ioutil"
 	"github.com/prometheus/common/log"
+	"io/ioutil"
 	"math/big"
-	"time"
 	"os"
+	"time"
 )
 
 func EnsureCert(hostname string, sslCert string, sslKey string) {
@@ -45,7 +45,7 @@ func EnsureCert(hostname string, sslCert string, sslKey string) {
 		tmpl := new(x509.Certificate)
 		tmpl.SerialNumber = big.NewInt(1)
 		tmpl.NotBefore = time.Now()
-		tmpl.NotAfter  = tmpl.NotBefore.AddDate(10,0,0)
+		tmpl.NotAfter = tmpl.NotBefore.AddDate(10, 0, 0)
 		tmpl.Subject.CommonName = hostname
 		tmpl.Subject.Organization = []string{exeName}
 		tmpl.SubjectKeyId = []byte{1, 2, 3, 4}
@@ -55,7 +55,7 @@ func EnsureCert(hostname string, sslCert string, sslKey string) {
 		tmpl.PolicyIdentifiers = []asn1.ObjectIdentifier{[]int{1, 2, 3}}
 
 		cacert := tmpl
-		cakey  := key
+		cakey := key
 
 		cr, err := x509.CreateCertificate(rand.Reader, tmpl, cacert, &key.PublicKey, cakey)
 		if err != nil {
