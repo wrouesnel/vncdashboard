@@ -2,6 +2,14 @@
     text-align: center;
 }
 
+canvas.vnc-window {
+    display: block;
+    margin-right: auto;
+    margin-left: auto;
+    padding-left: 0;
+    padding-right: 0;
+}
+
 a:link {
     color: #fff;
 }
