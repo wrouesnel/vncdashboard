@@ -11,7 +11,7 @@ function updateState(rfb, state, oldstate, msg) {
     }
 }
 
-function newVNCClient(path, canvas) {
+function newVNCClient(path, div, canvas) {
     console.log("Creating VNC client: " + path);
     try {
         rfb = new RFB({'target':       canvas,
@@ -21,7 +21,7 @@ function newVNCClient(path, canvas) {
             'true_color':   WebUtil.getConfigVar('true_color', true),
             'local_cursor': WebUtil.getConfigVar('cursor', true),
             'shared':       WebUtil.getConfigVar('shared', true),
-            'view_only':    WebUtil.getConfigVar('view_only', false),
+            'view_only':    WebUtil.getConfigVar('view_only', true),
             'onUpdateState':  updateState,
             'onXvpInit':    null,
             'onPasswordRequired':  null,
@@ -33,7 +33,7 @@ function newVNCClient(path, canvas) {
 
     rfb.connect(host, port, "", path);
 
-    vncSessions[path] = [ canvas, rfb ];
+    vncSessions[path] = [ div, rfb ];
 }
 
 function newVNCHost(e) {
@@ -43,13 +43,27 @@ function newVNCHost(e) {
         return
     }
 
-    canvas = document.createElement("canvas");
-    canvas.id = e.data; // Get the data
+    div = document.createElement("div");
+    div.className = "vnc-container";
+    div.id = e.data;
 
-    document.body.appendChild(canvas);
+    controlDiv = document.createElement("div");
+    controlDiv.className = "vnc-controls";
+        link = document.createElement("a");
+        link.setAttribute("href", "/static/vnc_auto.html?path=vnc/" + e.data);
+        link.innerHTML = "Fullscreen";
+    controlDiv.appendChild(link);
+
+    canvas = document.createElement("canvas");
+    canvas.className = "vnc-window";
+
+    div.appendChild(controlDiv);
+    div.appendChild(canvas);
+
+    document.body.appendChild(div);
 
     // Instantiate a new VNC client
-    newVNCClient("vnc/" + e.data, canvas);
+    newVNCClient("vnc/" + e.data, div, canvas);
 
 }
 
@@ -60,11 +74,11 @@ function removedVNCHost(e) {
         console.log("Missing session, doing nothing for: " + e.data);
         return
     }
-    canvas = t[0];
+    div = t[0];
     rfb = t[1];
 
     rfb.disconnect();
-    document.body.removeChild(canvas);
+    document.body.removeChild(div);
     delete vncSessions["vnc/" + e.data];
 }
 

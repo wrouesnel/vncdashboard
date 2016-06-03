@@ -181,7 +181,7 @@ func (this *serverManager) Add(server vncServer) {
 	this.mtx.Lock()
 	defer this.mtx.Unlock()
 
-	log.Infoln("Adding server:", server)
+	log.Infoln("Adding server:", server, server.Short())
 	this.availableServers[server.Short()] = server
 	this.publish(Manager_AddedServer, server)
 }
