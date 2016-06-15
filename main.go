@@ -44,6 +44,7 @@ var (
 	insecure = flag.Bool("listen.ssl.disable", false, "Disable SSL entirely (INSECURE!)")
 
 	socketPaths = flag.String("servers.watch-glob", "", "Glob path to watch for VNC UNIX socket servers appearing")
+	watchPollInterval = flag.Duration("servers.watch-interval", time.Second * 5, "If no inotify events in this long, manually poll the watch paths. 0 disables.")
 
 	debugWeb = flag.String("debug.webapp-proxy", "", "Proxy all requests for static assets to this IP instead")
 )
@@ -182,8 +183,14 @@ func (this *serverManager) Add(server vncServer) {
 	defer this.mtx.Unlock()
 
 	log.Infoln("Adding server:", server, server.Short())
+
+	_, ok := this.availableServers[server.Short()]
 	this.availableServers[server.Short()] = server
-	this.publish(Manager_AddedServer, server)
+
+	// Don't duplicate server publications
+	if !ok {
+		this.publish(Manager_AddedServer, server)
+	}
 }
 
 // Remove a server from the list by it's network type and address
@@ -225,6 +232,53 @@ func NewServerManager() *serverManager {
 	return &m
 }
 
+func pollSocketDirectory(glob string, manager *serverManager) {
+	watchPaths, err := filepath.Glob(glob)
+	if err != nil {
+		log.Fatalln("Error globbing watch-dirs:", err)
+	}
+
+	for _, globPath := range watchPaths {
+		// Add existent files to the manager
+		if s, err := os.Stat(globPath); !s.Mode().IsDir() && !os.IsNotExist(err) {
+			log.Infoln("Adding existing matched path:", globPath)
+			server := vncServer{
+				NetType: "unix",
+				Address: globPath,
+			}
+			log.Infoln("Adding server, hash:", server.Short())
+			manager.Add(server)
+		}
+	}
+}
+
+func handleSocketDirectoryEvent(glob string, manager *serverManager, e fsnotify.Event) {
+	// Check the path against the glob (which should generally filter for something like
+	// socket.
+	matched, err := filepath.Match(glob, e.Name)
+	if err != nil {
+		log.Error("Filepath globber error:", err)
+	}
+	if matched {
+		switch e.Op {
+		case fsnotify.Create:
+			server := vncServer{
+				NetType: "unix",
+				Address: e.Name,
+			}
+			log.Infoln("Adding server, hash:", server.Short())
+			manager.Add(server)
+			log.Debugln("Added server to manager:", server.String())
+		case fsnotify.Remove, fsnotify.Rename:
+			// Remove and rename have same relative effect - server no longer available
+			manager.RemoveByAddress(e.Name)
+		default:
+			// Ignore
+			log.Debugln("Ignoring Op:", e.String())
+		}
+	}
+}
+
 func watchSocketFiles(events <-chan fsnotify.Event, glob string, manager *serverManager) {
 	// Do an initial sweep of the glob path to pickup existing files. Run async so we don't
 	// miss events.
@@ -249,55 +303,34 @@ func watchSocketFiles(events <-chan fsnotify.Event, glob string, manager *server
 		}
 	}
 
-	// Pickup initial matches asynchronously
-	go func() {
-		watchPaths, err := filepath.Glob(glob)
-		if err != nil {
-			log.Fatalln("Error globbing watch-dirs:", err)
-		}
+	// Poll the socket directory to ensure we populate initial matches immediately
+	go pollSocketDirectory(glob, manager)
 
-		for _, globPath := range watchPaths {
-			// Add existent files to the manager
-			if s, err := os.Stat(globPath); !s.Mode().IsDir() && !os.IsNotExist(err) {
-				log.Infoln("Adding existing matched path:", globPath)
-				server := vncServer{
-					NetType: "unix",
-					Address: globPath,
+	// Loop into the socket watcher
+	log.Infoln("Socket watch loop Started")
+	func() {
+		for {
+			// Watchdog poller for sockets
+			var intervalTimeoutCh <-chan time.Time
+			if *watchPollInterval != 0 {
+				intervalTimeoutCh = time.After(*watchPollInterval)
+			} else {
+				intervalTimeoutCh = make(<-chan time.Time)
+			}
+			select {
+			case e, ok := <-events:
+				log.Debugln("Inotify Event:", e.Op, e.Name)
+				handleSocketDirectoryEvent(glob, manager, e)
+				if !ok {
+					log.Infoln("Watch files process finishing.")
+					return
 				}
-				log.Infoln("Adding server, hash:", server.Short())
-				manager.Add(server)
+			case <-intervalTimeoutCh:
+				log.Debugln("Watch poll timeout: doing manual poll")
+				pollSocketDirectory(glob, manager)
 			}
 		}
 	}()
-
-	for e := range events {
-		log.Debugln("WATCHED:", e.Op, e.Name)
-		// Check the path against the glob (which should generally filter for something like
-		// socket.
-		matched, err := filepath.Match(glob, e.Name)
-		if err != nil {
-			log.Error("Filepath globber error:", err)
-		}
-		if matched {
-			switch e.Op {
-			case fsnotify.Create:
-				server := vncServer{
-					NetType: "unix",
-					Address: e.Name,
-				}
-				log.Infoln("Adding server, hash:", server.Short())
-				manager.Add(server)
-				log.Debugln("Added server to manager:", server.String())
-			case fsnotify.Remove, fsnotify.Rename:
-				// Remove and rename have same relative effect - server no longer available
-				manager.RemoveByAddress(e.Name)
-			default:
-				// Ignore
-				log.Debugln("Ignoring Op:", e.String())
-			}
-		}
-	}
-	log.Infoln("Watch files process finishing.")
 }
 
 func main() {
