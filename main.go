@@ -182,14 +182,15 @@ func (this *serverManager) Add(server vncServer) {
 	this.mtx.Lock()
 	defer this.mtx.Unlock()
 
-	log.Infoln("Adding server:", server, server.Short())
-
 	_, ok := this.availableServers[server.Short()]
-	this.availableServers[server.Short()] = server
 
 	// Don't duplicate server publications
 	if !ok {
+		log.With("server_shortpath", server.Short()).With("server", server.String()).Infoln("Adding server")
+		this.availableServers[server.Short()] = server
 		this.publish(Manager_AddedServer, server)
+	} else {
+		log.With("server_shortpath", server.Short()).With("server", server.String()).Debugln("Ignoring already added server")
 	}
 }
 
@@ -241,12 +242,10 @@ func pollSocketDirectory(glob string, manager *serverManager) {
 	for _, globPath := range watchPaths {
 		// Add existent files to the manager
 		if s, err := os.Stat(globPath); !s.Mode().IsDir() && !os.IsNotExist(err) {
-			log.Infoln("Adding existing matched path:", globPath)
 			server := vncServer{
 				NetType: "unix",
 				Address: globPath,
 			}
-			log.Infoln("Adding server, hash:", server.Short())
 			manager.Add(server)
 		}
 	}
@@ -266,9 +265,7 @@ func handleSocketDirectoryEvent(glob string, manager *serverManager, e fsnotify.
 				NetType: "unix",
 				Address: e.Name,
 			}
-			log.Infoln("Adding server, hash:", server.Short())
 			manager.Add(server)
-			log.Debugln("Added server to manager:", server.String())
 		case fsnotify.Remove, fsnotify.Rename:
 			// Remove and rename have same relative effect - server no longer available
 			manager.RemoveByAddress(e.Name)
