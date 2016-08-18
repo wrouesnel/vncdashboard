@@ -1,0 +1,24 @@
+machine:
+  services:
+  - docker
+
+dependencies:
+  override:
+  - docker info
+  - docker build -t wrouesnel/vncdashboard:latest .
+  
+deployment:
+  # Master follows latest
+  master: 
+    branch: master
+    commands:
+    - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS
+    - docker push wrouesnel/vncdashboard:latest
+  # Tag releases
+  release:
+    tag: /^v\d+\.\d+\.\d+/
+    owner: wrouesnel
+    commands:
+    - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS
+    - docker tag wrouesnel/vncdashboard:latest wrouesnel/vncdashboard:$CIRCLE_TAG
+    - docker push wrouesnel/vncdashboard:$CIRCLE_TAG
