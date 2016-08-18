@@ -6,7 +6,10 @@ dependencies:
   override:
   - docker info
   - docker build -t wrouesnel/vncdashboard:latest .
-  
+
+test:
+  override:  
+
 deployment:
   # Master follows latest
   master: 
